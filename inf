@@ -1,0 +1,338 @@
+(function() {
+    // Eski menü varsa temizle
+    const oldUI = document.getElementById('tekdoz-ic-bot-v4');
+    if (oldUI) oldUI.remove();
+
+    // --- DEĞİŞKENLER VE DURUM ---
+    let aktifMod = 'ustten_alta'; // 'ustten_alta', 'alttan_uste', 'rastgele'
+    let maksTekrar = 4;           // Rastgele modundaki maks tekrar
+    let hizMS = 150;               // Başlangıç hızı (ms)
+    let calisiyor = false;
+    let timer = null;
+    let mevcutIndex = 0;
+    
+    // Her eşyanın kaç defa seçildiğini tutan hafıza
+    let esyaKullanimSayilari = new Map();
+
+    // --- ARAYÜZ (UI) OLUŞTURMA ---
+    const ui = document.createElement('div');
+    ui.id = 'tekdoz-ic-bot-v4';
+    ui.style.position = 'fixed';
+    ui.style.bottom = '20px';
+    ui.style.right = '20px';
+    ui.style.zIndex = '999999';
+    ui.style.backgroundColor = '#121214';
+    ui.style.color = '#ffffff';
+    ui.style.padding = '20px';
+    ui.style.borderRadius = '16px';
+    ui.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8)';
+    ui.style.border = '2px solid #27272a';
+    ui.style.fontFamily = 'Segoe UI, Arial, sans-serif';
+    ui.style.width = '290px';
+    ui.style.userSelect = 'none';
+
+    // Başlık
+    const title = document.createElement('h3');
+    title.innerText = '⚡ Infinite Craft Oto Bot';
+    title.style.margin = '0 0 15px 0';
+    title.style.textAlign = 'center';
+    title.style.color = '#38bdf8';
+    title.style.fontSize = '18px';
+    ui.appendChild(title);
+
+    // Mod Butonları
+    const modeBox = document.createElement('div');
+    modeBox.style.display = 'flex';
+    modeBox.style.flexDirection = 'column';
+    modeBox.style.gap = '8px';
+    modeBox.style.marginBottom = '15px';
+
+    const btnUstten = document.createElement('button');
+    const btnAlttan = document.createElement('button');
+    const btnRastgele = document.createElement('button');
+
+    // SLIDER 1: Rastgele Tekrar Sayısı
+    const repeatSliderContainer = document.createElement('div');
+    repeatSliderContainer.style.display = 'none';
+    repeatSliderContainer.style.flexDirection = 'column';
+    repeatSliderContainer.style.gap = '5px';
+    repeatSliderContainer.style.marginBottom = '10px';
+    repeatSliderContainer.style.backgroundColor = '#18181b';
+    repeatSliderContainer.style.padding = '10px';
+    repeatSliderContainer.style.borderRadius = '8px';
+    repeatSliderContainer.style.border = '1px solid #3f3f46';
+
+    const repeatLabel = document.createElement('label');
+    repeatLabel.innerText = `Maks. Tekrar Tıklama: ${maksTekrar}`;
+    repeatLabel.style.fontSize = '12px';
+    repeatLabel.style.color = '#e4e4e7';
+
+    const repeatInput = document.createElement('input');
+    repeatInput.type = 'range';
+    repeatInput.min = '1';
+    repeatInput.max = '5';
+    repeatInput.value = maksTekrar.toString();
+    repeatInput.style.cursor = 'pointer';
+
+    repeatInput.oninput = (e) => {
+        maksTekrar = parseInt(e.target.value);
+        repeatLabel.innerText = `Maks. Tekrar Tıklama: ${maksTekrar}`;
+    };
+
+    repeatSliderContainer.appendChild(repeatLabel);
+    repeatSliderContainer.appendChild(repeatInput);
+
+    // SLIDER 2: Tıklama Hızı / Gecikme
+    const speedSliderContainer = document.createElement('div');
+    speedSliderContainer.style.display = 'flex';
+    speedSliderContainer.style.flexDirection = 'column';
+    speedSliderContainer.style.gap = '5px';
+    speedSliderContainer.style.marginBottom = '10px';
+    speedSliderContainer.style.backgroundColor = '#18181b';
+    speedSliderContainer.style.padding = '10px';
+    speedSliderContainer.style.borderRadius = '8px';
+    speedSliderContainer.style.border = '1px solid #3f3f46';
+
+    const speedLabel = document.createElement('label');
+    speedLabel.innerText = `Tıklama Gecikmesi: ${hizMS} ms`;
+    speedLabel.style.fontSize = '12px';
+    speedLabel.style.color = '#38bdf8';
+
+    const speedInput = document.createElement('input');
+    speedInput.type = 'range';
+    speedInput.min = '50';
+    speedInput.max = '1000';
+    speedInput.step = '25';
+    speedInput.value = hizMS.toString();
+    speedInput.style.cursor = 'pointer';
+
+    speedInput.oninput = (e) => {
+        hizMS = parseInt(e.target.value);
+        speedLabel.innerText = `Tıklama Gecikmesi: ${hizMS} ms`;
+
+        if (calisiyor) {
+            clearInterval(timer);
+            timer = setInterval(adimAt, hizMS);
+        }
+    };
+
+    speedSliderContainer.appendChild(speedLabel);
+    speedSliderContainer.appendChild(speedInput);
+
+    // YENİ: ŞANSLARI SIFIRLA BUTONU
+    const resetBtn = document.createElement('button');
+    resetBtn.innerText = '🔄 Şansları Sıfırla';
+    resetBtn.style.width = '100%';
+    resetBtn.style.padding = '8px';
+    resetBtn.style.marginBottom = '15px';
+    resetBtn.style.fontSize = '12px';
+    resetBtn.style.fontWeight = 'bold';
+    resetBtn.style.color = '#e4e4e7';
+    resetBtn.style.backgroundColor = '#27272a';
+    resetBtn.style.border = '1px solid #3f3f46';
+    resetBtn.style.borderRadius = '8px';
+    resetBtn.style.cursor = 'pointer';
+    resetBtn.style.transition = '0.2s';
+
+    resetBtn.onmouseover = () => resetBtn.style.backgroundColor = '#3f3f46';
+    resetBtn.onmouseout = () => resetBtn.style.backgroundColor = '#27272a';
+
+    resetBtn.onclick = () => {
+        esyaKullanimSayilari.clear();
+        infoText.innerText = 'Şanslar sıfırlandı!';
+        console.log("%c[Tekdoz Bot] Tüm eşya kullanım sayaçları ve şanslar sıfırlandı.", "color: #eab308; font-weight: bold;");
+    };
+
+    function butonStilleriniGuncelle() {
+        const butonlar = [
+            { btn: btnUstten, mod: 'ustten_alta', txt: '⬇️ Üstten Aşağıya' },
+            { btn: btnAlttan, mod: 'alttan_uste', txt: '⬆️ Alttan Üste' },
+            { btn: btnRastgele, mod: 'rastgele', txt: '🔀 Tamamen Rastgele' }
+        ];
+
+        butonlar.forEach(item => {
+            if (aktifMod === item.mod) {
+                item.btn.style.backgroundColor = '#0284c7';
+                item.btn.style.color = '#ffffff';
+                item.btn.style.border = '1px solid #38bdf8';
+            } else {
+                item.btn.style.backgroundColor = '#27272a';
+                item.btn.style.color = '#a1a1aa';
+                item.btn.style.border = '1px solid transparent';
+            }
+        });
+
+        repeatSliderContainer.style.display = (aktifMod === 'rastgele') ? 'flex' : 'none';
+        resetBtn.style.display = (aktifMod === 'rastgele') ? 'block' : 'none';
+    }
+
+    [
+        { btn: btnUstten, mod: 'ustten_alta', txt: '⬇️ Üstten Aşağıya' },
+        { btn: btnAlttan, mod: 'alttan_uste', txt: '⬆️ Alttan Üste' },
+        { btn: btnRastgele, mod: 'rastgele', txt: '🔀 Tamamen Rastgele' }
+    ].forEach(item => {
+        item.btn.innerText = item.txt;
+        item.btn.style.padding = '10px';
+        item.btn.style.borderRadius = '8px';
+        item.btn.style.cursor = 'pointer';
+        item.btn.style.fontWeight = 'bold';
+        item.btn.style.fontSize = '13px';
+        item.btn.style.transition = '0.2s';
+
+        item.btn.onclick = () => {
+            aktifMod = item.mod;
+            mevcutIndex = 0;
+            butonStilleriniGuncelle();
+        };
+
+        modeBox.appendChild(item.btn);
+    });
+
+    ui.appendChild(modeBox);
+    ui.appendChild(repeatSliderContainer);
+    ui.appendChild(speedSliderContainer);
+    ui.appendChild(resetBtn);
+
+    // Bilgi Durumu
+    const infoText = document.createElement('div');
+    infoText.style.fontSize = '12px';
+    infoText.style.color = '#9ca3af';
+    infoText.style.marginBottom = '15px';
+    infoText.style.textAlign = 'center';
+    infoText.innerText = 'Durum: Hazır';
+    ui.appendChild(infoText);
+
+    // BÜYÜK BAŞLAT / DURDUR BUTONU
+    const mainToggleBtn = document.createElement('button');
+    mainToggleBtn.innerText = 'BAŞLAT';
+    mainToggleBtn.style.width = '100%';
+    mainToggleBtn.style.padding = '14px';
+    mainToggleBtn.style.fontSize = '18px';
+    mainToggleBtn.style.fontWeight = '900';
+    mainToggleBtn.style.color = '#ffffff';
+    mainToggleBtn.style.backgroundColor = '#16a34a';
+    mainToggleBtn.style.border = 'none';
+    mainToggleBtn.style.borderRadius = '10px';
+    mainToggleBtn.style.cursor = 'pointer';
+    mainToggleBtn.style.boxShadow = '0 4px 12px rgba(22, 163, 74, 0.4)';
+
+    ui.appendChild(mainToggleBtn);
+    document.body.appendChild(ui);
+    butonStilleriniGuncelle();
+
+    // --- MANTIKSAL FONKSİYONLAR ---
+
+    function getSidebarItems() {
+        let items = Array.from(document.querySelectorAll('.sidebar .item, .items-container .item, .items .item'));
+        if (items.length === 0) {
+            items = Array.from(document.querySelectorAll('.item')).filter(el => {
+                const rect = el.getBoundingClientRect();
+                return rect.left > (window.innerWidth * 0.5);
+            });
+        }
+        return items;
+    }
+
+    function esyayiMasayaAt(itemElement) {
+        if (!itemElement) return;
+
+        const minX = window.innerWidth * 0.15;
+        const maxX = window.innerWidth * 0.60;
+        const minY = window.innerHeight * 0.15;
+        const maxY = window.innerHeight * 0.75;
+
+        const targetX = minX + Math.random() * (maxX - minX);
+        const targetY = minY + Math.random() * (maxY - minY);
+
+        const eventOpts = {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            clientX: targetX,
+            clientY: targetY,
+            pageX: targetX,
+            pageY: targetY
+        };
+
+        itemElement.dispatchEvent(new MouseEvent('mousedown', eventOpts));
+        itemElement.dispatchEvent(new MouseEvent('mouseup', eventOpts));
+        itemElement.dispatchEvent(new MouseEvent('click', eventOpts));
+    }
+
+    function adilRastgeleEsyaSec(items) {
+        let toplamAgirlik = 0;
+        const agirlikListesi = items.map(item => {
+            const isim = item.innerText.trim();
+            const kullanim = esyaKullanimSayilari.get(isim) || 0;
+            const agirlik = 1 / (kullanim + 1);
+            toplamAgirlik += agirlik;
+            return { item, isim, agirlik };
+        });
+
+        let randVal = Math.random() * toplamAgirlik;
+        for (let obj of agirlikListesi) {
+            if (randVal < obj.agirlik) {
+                esyaKullanimSayilari.set(obj.isim, (esyaKullanimSayilari.get(obj.isim) || 0) + 1);
+                return obj.item;
+            }
+            randVal -= obj.agirlik;
+        }
+        return items[0];
+    }
+
+    function adimAt() {
+        const items = getSidebarItems();
+        if (items.length === 0) {
+            infoText.innerText = 'Eşya bulunamadı!';
+            return;
+        }
+
+        if (aktifMod === 'ustten_alta') {
+            if (mevcutIndex >= items.length) mevcutIndex = 0;
+            const item = items[mevcutIndex];
+            esyayiMasayaAt(item);
+            infoText.innerText = `[Sıralı] ${item.innerText.trim()}`;
+            mevcutIndex++;
+        } 
+        else if (aktifMod === 'alttan_uste') {
+            if (mevcutIndex < 0 || mevcutIndex >= items.length) mevcutIndex = items.length - 1;
+            const item = items[mevcutIndex];
+            esyayiMasayaAt(item);
+            infoText.innerText = `[Ters] ${item.innerText.trim()}`;
+            mevcutIndex--;
+        } 
+        else if (aktifMod === 'rastgele') {
+            const secilenItem = adilRastgeleEsyaSec(items);
+            const tiklamaSayisi = Math.floor(Math.random() * maksTekrar) + 1;
+
+            infoText.innerText = `[Rastgele] ${secilenItem.innerText.trim()} (${tiklamaSayisi}x)`;
+
+            for (let k = 0; k < tiklamaSayisi; k++) {
+                setTimeout(() => {
+                    esyayiMasayaAt(secilenItem);
+                }, k * 30);
+            }
+        }
+    }
+
+    // BAŞLAT / DURDUR
+    mainToggleBtn.onclick = () => {
+        calisiyor = !calisiyor;
+
+        if (calisiyor) {
+            mainToggleBtn.innerText = 'DURDUR';
+            mainToggleBtn.style.backgroundColor = '#dc2626';
+            mainToggleBtn.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.4)';
+            
+            timer = setInterval(adimAt, hizMS);
+        } else {
+            mainToggleBtn.innerText = 'BAŞLAT';
+            mainToggleBtn.style.backgroundColor = '#16a34a';
+            mainToggleBtn.style.boxShadow = '0 4px 12px rgba(22, 163, 74, 0.4)';
+            infoText.innerText = 'Duraklatıldı.';
+            clearInterval(timer);
+        }
+    };
+
+    console.log("%c[Tekdoz Bot] Sıfırlama butonlu yeni sürüm yüklendi!", "color: #38bdf8; font-weight: bold;");
+})();
