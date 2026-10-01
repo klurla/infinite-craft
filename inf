@@ -33,7 +33,7 @@
 
     // Başlık
     const title = document.createElement('h3');
-    title.innerText = '⚡ Infinite Craft Oto Bot';
+    title.innerText = '⚡ Infinite Craft Oto Bot made for sinan onder and osman';
     title.style.margin = '0 0 15px 0';
     title.style.textAlign = 'center';
     title.style.color = '#38bdf8';
