@@ -1,167 +1,227 @@
 (function() {
-    // Eski menü varsa temizle
-    const oldUI = document.getElementById('tekdoz-ic-bot-v4');
+    // Eski menü veya top varsa temizle
+    const oldUI = document.getElementById('tekdoz-ic-bot-v5');
+    const oldBall = document.getElementById('tekdoz-mini-ball');
     if (oldUI) oldUI.remove();
+    if (oldBall) oldBall.remove();
 
     // --- DEĞİŞKENLER VE DURUM ---
+    let aktifSekme = 'bot';       // 'bot' veya 'birleştir'
     let aktifMod = 'ustten_alta'; // 'ustten_alta', 'alttan_uste', 'rastgele'
-    let maksTekrar = 4;           // Rastgele modundaki maks tekrar
-    let hizMS = 150;               // Başlangıç hızı (ms)
+    let maksTekrar = 4;
+    let hizMS = 150;              // Normal bot hızı
+    let birlestirmeHizMS = 100;   // Tablo birleştirme hızı (Min 20ms)
+    
     let calisiyor = false;
+    let birlestirmeCalisiyor = false;
     let timer = null;
+    let birlestirmeTimer = null;
     let mevcutIndex = 0;
     
-    // Her eşyanın kaç defa seçildiğini tutan hafıza
     let esyaKullanimSayilari = new Map();
 
-    // --- ARAYÜZ (UI) OLUŞTURMA ---
+    // --- KÜÇÜK TOP (MINI BALL) OLUŞTURMA ---
+    const miniBall = document.createElement('div');
+    miniBall.id = 'tekdoz-mini-ball';
+    miniBall.innerText = '⚡';
+    miniBall.style.cssText = `
+        position: fixed; bottom: 20px; right: 20px; z-index: 999999;
+        width: 50px; height: 50px; border-radius: 50%;
+        background: linear-gradient(135deg, #0284c7, #38bdf8);
+        color: #ffffff; font-size: 24px; font-weight: bold;
+        display: none; align-items: center; justify-content: center;
+        cursor: pointer; box-shadow: 0 6px 20px rgba(56, 189, 248, 0.5);
+        user-select: none; border: 2px solid #ffffff; transition: transform 0.2s;
+    `;
+    miniBall.onmouseover = () => miniBall.style.transform = 'scale(1.1)';
+    miniBall.onmouseout = () => miniBall.style.transform = 'scale(1)';
+    document.body.appendChild(miniBall);
+
+    // --- ANA ARAYÜZ (UI) OLUŞTURMA ---
     const ui = document.createElement('div');
-    ui.id = 'tekdoz-ic-bot-v4';
-    ui.style.position = 'fixed';
-    ui.style.bottom = '20px';
-    ui.style.right = '20px';
-    ui.style.zIndex = '999999';
-    ui.style.backgroundColor = '#121214';
-    ui.style.color = '#ffffff';
-    ui.style.padding = '20px';
-    ui.style.borderRadius = '16px';
-    ui.style.boxShadow = '0 10px 30px rgba(0,0,0,0.8)';
-    ui.style.border = '2px solid #27272a';
-    ui.style.fontFamily = 'Segoe UI, Arial, sans-serif';
-    ui.style.width = '290px';
-    ui.style.userSelect = 'none';
+    ui.id = 'tekdoz-ic-bot-v5';
+    ui.style.cssText = `
+        position: fixed; bottom: 20px; right: 20px; z-index: 999999;
+        background-color: #121214; color: #ffffff; padding: 16px;
+        border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.85);
+        border: 2px solid #27272a; font-family: 'Segoe UI', Arial, sans-serif;
+        width: 310px; user-select: none;
+    `;
 
-    // Başlık
-    const title = document.createElement('h3');
-    title.innerText = '⚡ Infinite Craft Oto Bot made for sinan onder and osman';
-    title.style.margin = '0 0 15px 0';
-    title.style.textAlign = 'center';
-    title.style.color = '#38bdf8';
-    title.style.fontSize = '18px';
-    ui.appendChild(title);
+    // --- BAŞLIK ÇUBUĞU (SÜRÜKLENEBİLİR) ---
+    const header = document.createElement('div');
+    header.style.cssText = `
+        display: flex; justify-content: space-between; align-items: center;
+        margin-bottom: 12px; cursor: move; padding-bottom: 8px;
+        border-bottom: 1px solid #27272a;
+    `;
 
-    // Mod Butonları
+    const title = document.createElement('span');
+    title.innerText = '⚡ Infinite Craft Bot';
+    title.style.cssText = 'color: #38bdf8; font-weight: bold; font-size: 16px; pointer-events: none;';
+
+    const btnMinimize = document.createElement('button');
+    btnMinimize.innerText = '—';
+    btnMinimize.title = 'Küçült';
+    btnMinimize.style.cssText = `
+        background: #27272a; color: #a1a1aa; border: none;
+        border-radius: 6px; width: 26px; height: 26px;
+        font-weight: bold; cursor: pointer; display: flex;
+        align-items: center; justify-content: center; transition: 0.2s;
+    `;
+    btnMinimize.onmouseover = () => btnMinimize.style.backgroundColor = '#3f3f46';
+    btnMinimize.onmouseout = () => btnMinimize.style.backgroundColor = '#27272a';
+
+    header.appendChild(title);
+    header.appendChild(btnMinimize);
+    ui.appendChild(header);
+
+    // SÜRÜKLENME MANTIĞI
+    let isDragging = false, dragX = 0, dragY = 0;
+    header.onmousedown = (e) => {
+        if (e.target === btnMinimize) return;
+        isDragging = true;
+        dragX = e.clientX - ui.offsetLeft;
+        dragY = e.clientY - ui.offsetTop;
+
+        const onMouseMove = (ev) => {
+            if (!isDragging) return;
+            ui.style.left = (ev.clientX - dragX) + 'px';
+            ui.style.top = (ev.clientY - dragY) + 'px';
+            ui.style.bottom = 'auto';
+            ui.style.right = 'auto';
+        };
+
+        const onMouseUp = () => {
+            isDragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    };
+
+    // KÜÇÜLT / BÜYÜT BUTON MANTIĞI
+    btnMinimize.onclick = () => {
+        ui.style.display = 'none';
+        miniBall.style.display = 'flex';
+    };
+    miniBall.onclick = () => {
+        miniBall.style.display = 'none';
+        ui.style.display = 'block';
+    };
+
+    // --- SEKMELER (TABS) ---
+    const tabBar = document.createElement('div');
+    tabBar.style.cssText = 'display: flex; gap: 6px; margin-bottom: 12px;';
+
+    const tabBot = document.createElement('button');
+    tabBot.innerText = '🤖 Oto Bot';
+    const tabCombine = document.createElement('button');
+    tabCombine.innerText = '🧪 Oto Birleştirme';
+
+    [tabBot, tabCombine].forEach(tab => {
+        tab.style.cssText = `
+            flex: 1; padding: 8px; border-radius: 8px; font-weight: bold;
+            font-size: 12px; cursor: pointer; border: none; transition: 0.2s;
+        `;
+    });
+
+    tabBar.appendChild(tabBot);
+    tabBar.appendChild(tabCombine);
+    ui.appendChild(tabBar);
+
+    // SEKMELERİN İÇERİK KONTEYNERLARİ
+    const contentBot = document.createElement('div');
+    const contentCombine = document.createElement('div');
+    contentCombine.style.display = 'none';
+
+    ui.appendChild(contentBot);
+    ui.appendChild(contentCombine);
+
+    function sekmeGuncelle() {
+        if (aktifSekme === 'bot') {
+            tabBot.style.backgroundColor = '#0284c7';
+            tabBot.style.color = '#ffffff';
+            tabCombine.style.backgroundColor = '#27272a';
+            tabCombine.style.color = '#a1a1aa';
+            contentBot.style.display = 'block';
+            contentCombine.style.display = 'none';
+        } else {
+            tabCombine.style.backgroundColor = '#0284c7';
+            tabCombine.style.color = '#ffffff';
+            tabBot.style.backgroundColor = '#27272a';
+            tabBot.style.color = '#a1a1aa';
+            contentCombine.style.display = 'block';
+            contentBot.style.display = 'none';
+        }
+    }
+
+    tabBot.onclick = () => { aktifSekme = 'bot'; sekmeGuncelle(); };
+    tabCombine.onclick = () => { aktifSekme = 'birleştir'; sekmeGuncelle(); };
+
+    // ==========================================
+    // SEKME 1: OTO BOT İÇERİĞİ
+    // ==========================================
     const modeBox = document.createElement('div');
-    modeBox.style.display = 'flex';
-    modeBox.style.flexDirection = 'column';
-    modeBox.style.gap = '8px';
-    modeBox.style.marginBottom = '15px';
+    modeBox.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;';
 
     const btnUstten = document.createElement('button');
     const btnAlttan = document.createElement('button');
     const btnRastgele = document.createElement('button');
 
-    // SLIDER 1: Rastgele Tekrar Sayısı
+    // SLIDER: Rastgele Tekrar
     const repeatSliderContainer = document.createElement('div');
-    repeatSliderContainer.style.display = 'none';
-    repeatSliderContainer.style.flexDirection = 'column';
-    repeatSliderContainer.style.gap = '5px';
-    repeatSliderContainer.style.marginBottom = '10px';
-    repeatSliderContainer.style.backgroundColor = '#18181b';
-    repeatSliderContainer.style.padding = '10px';
-    repeatSliderContainer.style.borderRadius = '8px';
-    repeatSliderContainer.style.border = '1px solid #3f3f46';
+    repeatSliderContainer.style.cssText = 'display: none; flex-direction: column; gap: 4px; margin-bottom: 10px; background: #18181b; padding: 8px; border-radius: 8px; border: 1px solid #3f3f46;';
 
     const repeatLabel = document.createElement('label');
-    repeatLabel.innerText = `Maks. Tekrar Tıklama: ${maksTekrar}`;
-    repeatLabel.style.fontSize = '12px';
-    repeatLabel.style.color = '#e4e4e7';
+    repeatLabel.innerText = `Maks. Tekrar: ${maksTekrar}`;
+    repeatLabel.style.cssText = 'font-size: 11px; color: #e4e4e7;';
 
     const repeatInput = document.createElement('input');
-    repeatInput.type = 'range';
-    repeatInput.min = '1';
-    repeatInput.max = '5';
-    repeatInput.value = maksTekrar.toString();
+    repeatInput.type = 'range'; repeatInput.min = '1'; repeatInput.max = '5'; repeatInput.value = maksTekrar.toString();
     repeatInput.style.cursor = 'pointer';
-
     repeatInput.oninput = (e) => {
         maksTekrar = parseInt(e.target.value);
-        repeatLabel.innerText = `Maks. Tekrar Tıklama: ${maksTekrar}`;
+        repeatLabel.innerText = `Maks. Tekrar: ${maksTekrar}`;
     };
-
     repeatSliderContainer.appendChild(repeatLabel);
     repeatSliderContainer.appendChild(repeatInput);
 
-    // SLIDER 2: Tıklama Hızı / Gecikme
+    // SLIDER: Tıklama Hızı
     const speedSliderContainer = document.createElement('div');
-    speedSliderContainer.style.display = 'flex';
-    speedSliderContainer.style.flexDirection = 'column';
-    speedSliderContainer.style.gap = '5px';
-    speedSliderContainer.style.marginBottom = '10px';
-    speedSliderContainer.style.backgroundColor = '#18181b';
-    speedSliderContainer.style.padding = '10px';
-    speedSliderContainer.style.borderRadius = '8px';
-    speedSliderContainer.style.border = '1px solid #3f3f46';
+    speedSliderContainer.style.cssText = 'display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; background: #18181b; padding: 8px; border-radius: 8px; border: 1px solid #3f3f46;';
 
     const speedLabel = document.createElement('label');
     speedLabel.innerText = `Tıklama Gecikmesi: ${hizMS} ms`;
-    speedLabel.style.fontSize = '12px';
-    speedLabel.style.color = '#38bdf8';
+    speedLabel.style.cssText = 'font-size: 11px; color: #38bdf8;';
 
     const speedInput = document.createElement('input');
-    speedInput.type = 'range';
-    speedInput.min = '50';
-    speedInput.max = '1000';
-    speedInput.step = '25';
-    speedInput.value = hizMS.toString();
+    speedInput.type = 'range'; speedInput.min = '50'; speedInput.max = '1000'; speedInput.step = '25'; speedInput.value = hizMS.toString();
     speedInput.style.cursor = 'pointer';
-
     speedInput.oninput = (e) => {
         hizMS = parseInt(e.target.value);
         speedLabel.innerText = `Tıklama Gecikmesi: ${hizMS} ms`;
-
-        if (calisiyor) {
-            clearInterval(timer);
-            timer = setInterval(adimAt, hizMS);
-        }
+        if (calisiyor) { clearInterval(timer); timer = setInterval(adimAt, hizMS); }
     };
-
     speedSliderContainer.appendChild(speedLabel);
     speedSliderContainer.appendChild(speedInput);
 
-    // YENİ: ŞANSLARI SIFIRLA BUTONU
+    // ŞANSLARI SIFIRLA BUTONU
     const resetBtn = document.createElement('button');
     resetBtn.innerText = '🔄 Şansları Sıfırla';
-    resetBtn.style.width = '100%';
-    resetBtn.style.padding = '8px';
-    resetBtn.style.marginBottom = '15px';
-    resetBtn.style.fontSize = '12px';
-    resetBtn.style.fontWeight = 'bold';
-    resetBtn.style.color = '#e4e4e7';
-    resetBtn.style.backgroundColor = '#27272a';
-    resetBtn.style.border = '1px solid #3f3f46';
-    resetBtn.style.borderRadius = '8px';
-    resetBtn.style.cursor = 'pointer';
-    resetBtn.style.transition = '0.2s';
-
-    resetBtn.onmouseover = () => resetBtn.style.backgroundColor = '#3f3f46';
-    resetBtn.onmouseout = () => resetBtn.style.backgroundColor = '#27272a';
-
-    resetBtn.onclick = () => {
-        esyaKullanimSayilari.clear();
-        infoText.innerText = 'Şanslar sıfırlandı!';
-        console.log("%c[Tekdoz Bot] Tüm eşya kullanım sayaçları ve şanslar sıfırlandı.", "color: #eab308; font-weight: bold;");
-    };
+    resetBtn.style.cssText = 'width: 100%; padding: 6px; margin-bottom: 10px; font-size: 11px; font-weight: bold; color: #e4e4e7; background: #27272a; border: 1px solid #3f3f46; border-radius: 6px; cursor: pointer;';
+    resetBtn.onclick = () => { esyaKullanimSayilari.clear(); infoText.innerText = 'Şanslar sıfırlandı!'; };
 
     function butonStilleriniGuncelle() {
-        const butonlar = [
-            { btn: btnUstten, mod: 'ustten_alta', txt: '⬇️ Üstten Aşağıya' },
-            { btn: btnAlttan, mod: 'alttan_uste', txt: '⬆️ Alttan Üste' },
-            { btn: btnRastgele, mod: 'rastgele', txt: '🔀 Tamamen Rastgele' }
-        ];
-
-        butonlar.forEach(item => {
+        [{ btn: btnUstten, mod: 'ustten_alta' }, { btn: btnAlttan, mod: 'alttan_uste' }, { btn: btnRastgele, mod: 'rastgele' }].forEach(item => {
             if (aktifMod === item.mod) {
-                item.btn.style.backgroundColor = '#0284c7';
-                item.btn.style.color = '#ffffff';
-                item.btn.style.border = '1px solid #38bdf8';
+                item.btn.style.backgroundColor = '#0284c7'; item.btn.style.color = '#ffffff'; item.btn.style.border = '1px solid #38bdf8';
             } else {
-                item.btn.style.backgroundColor = '#27272a';
-                item.btn.style.color = '#a1a1aa';
-                item.btn.style.border = '1px solid transparent';
+                item.btn.style.backgroundColor = '#27272a'; item.btn.style.color = '#a1a1aa'; item.btn.style.border = '1px solid transparent';
             }
         });
-
         repeatSliderContainer.style.display = (aktifMod === 'rastgele') ? 'flex' : 'none';
         resetBtn.style.display = (aktifMod === 'rastgele') ? 'block' : 'none';
     }
@@ -172,91 +232,108 @@
         { btn: btnRastgele, mod: 'rastgele', txt: '🔀 Tamamen Rastgele' }
     ].forEach(item => {
         item.btn.innerText = item.txt;
-        item.btn.style.padding = '10px';
-        item.btn.style.borderRadius = '8px';
-        item.btn.style.cursor = 'pointer';
-        item.btn.style.fontWeight = 'bold';
-        item.btn.style.fontSize = '13px';
-        item.btn.style.transition = '0.2s';
-
-        item.btn.onclick = () => {
-            aktifMod = item.mod;
-            mevcutIndex = 0;
-            butonStilleriniGuncelle();
-        };
-
+        item.btn.style.cssText = 'padding: 8px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; transition: 0.2s;';
+        item.btn.onclick = () => { aktifMod = item.mod; mevcutIndex = 0; butonStilleriniGuncelle(); };
         modeBox.appendChild(item.btn);
     });
 
-    ui.appendChild(modeBox);
-    ui.appendChild(repeatSliderContainer);
-    ui.appendChild(speedSliderContainer);
-    ui.appendChild(resetBtn);
+    contentBot.appendChild(modeBox);
+    contentBot.appendChild(repeatSliderContainer);
+    contentBot.appendChild(speedSliderContainer);
+    contentBot.appendChild(resetBtn);
 
-    // Bilgi Durumu
+    const mainToggleBtn = document.createElement('button');
+    mainToggleBtn.innerText = 'BAŞLAT';
+    mainToggleBtn.style.cssText = 'width: 100%; padding: 12px; font-size: 16px; font-weight: 900; color: #ffffff; background: #16a34a; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(22, 163, 74, 0.4);';
+    contentBot.appendChild(mainToggleBtn);
+
+    // ==========================================
+    // SEKME 2: OTO BİRLEŞTİRME İÇERİĞİ
+    // ==========================================
+    const combineBtn = document.createElement('button');
+    combineBtn.innerText = '⚡ TABLODA OLAN BÜTÜN BİRLEŞTİRMELERİ DENE';
+    combineBtn.style.cssText = 'width: 100%; padding: 12px; font-size: 12px; font-weight: bold; color: #ffffff; background: #7c3aed; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4); margin-bottom: 12px;';
+
+    // SLIDER: Birleştirme Gecikmesi (MIN LIMIT: 20 MS)
+    const combineSpeedContainer = document.createElement('div');
+    combineSpeedContainer.style.cssText = 'display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; background: #18181b; padding: 8px; border-radius: 8px; border: 1px solid #3f3f46;';
+
+    const combineSpeedLabel = document.createElement('label');
+    combineSpeedLabel.innerText = `Deneme Aralığı: ${birlestirmeHizMS} ms`;
+    combineSpeedLabel.style.cssText = 'font-size: 11px; color: #a78bfa;';
+
+    const combineSpeedInput = document.createElement('input');
+    combineSpeedInput.type = 'range'; combineSpeedInput.min = '20'; combineSpeedInput.max = '500'; combineSpeedInput.step = '10'; combineSpeedInput.value = birlestirmeHizMS.toString();
+    combineSpeedInput.style.cursor = 'pointer';
+    combineSpeedInput.oninput = (e) => {
+        birlestirmeHizMS = parseInt(e.target.value);
+        combineSpeedLabel.innerText = `Deneme Aralığı: ${birlestirmeHizMS} ms`;
+    };
+
+    combineSpeedContainer.appendChild(combineSpeedLabel);
+    combineSpeedContainer.appendChild(combineSpeedInput);
+
+    contentCombine.appendChild(combineBtn);
+    contentCombine.appendChild(combineSpeedContainer);
+
+    // --- DURUM METNİ (HER İKİ SEKMEDE GÖRÜNÜR) ---
     const infoText = document.createElement('div');
-    infoText.style.fontSize = '12px';
-    infoText.style.color = '#9ca3af';
-    infoText.style.marginBottom = '15px';
-    infoText.style.textAlign = 'center';
+    infoText.style.cssText = 'font-size: 11px; color: #9ca3af; margin-top: 12px; text-align: center; font-weight: 500;';
     infoText.innerText = 'Durum: Hazır';
     ui.appendChild(infoText);
 
-    // BÜYÜK BAŞLAT / DURDUR BUTONU
-    const mainToggleBtn = document.createElement('button');
-    mainToggleBtn.innerText = 'BAŞLAT';
-    mainToggleBtn.style.width = '100%';
-    mainToggleBtn.style.padding = '14px';
-    mainToggleBtn.style.fontSize = '18px';
-    mainToggleBtn.style.fontWeight = '900';
-    mainToggleBtn.style.color = '#ffffff';
-    mainToggleBtn.style.backgroundColor = '#16a34a';
-    mainToggleBtn.style.border = 'none';
-    mainToggleBtn.style.borderRadius = '10px';
-    mainToggleBtn.style.cursor = 'pointer';
-    mainToggleBtn.style.boxShadow = '0 4px 12px rgba(22, 163, 74, 0.4)';
-
-    ui.appendChild(mainToggleBtn);
     document.body.appendChild(ui);
+    sekmeGuncelle();
     butonStilleriniGuncelle();
 
-    // --- MANTIKSAL FONKSİYONLAR ---
+    // ==========================================
+    // MANTIKSAL FONKSİYONLAR & KOMBİNASYON
+    // ==========================================
 
     function getSidebarItems() {
         let items = Array.from(document.querySelectorAll('.sidebar .item, .items-container .item, .items .item'));
         if (items.length === 0) {
-            items = Array.from(document.querySelectorAll('.item')).filter(el => {
-                const rect = el.getBoundingClientRect();
-                return rect.left > (window.innerWidth * 0.5);
-            });
+            items = Array.from(document.querySelectorAll('.item')).filter(el => el.getBoundingClientRect().left > (window.innerWidth * 0.5));
         }
         return items;
     }
 
+    // Tablodaki (Masadaki) Eşyaları Getir
+    function getBoardItems() {
+        return Array.from(document.querySelectorAll('.instance, .container .item')).filter(el => {
+            const rect = el.getBoundingClientRect();
+            return rect.left < (window.innerWidth * 0.70) && rect.width > 0 && rect.height > 0;
+        });
+    }
+
     function esyayiMasayaAt(itemElement) {
         if (!itemElement) return;
-
-        const minX = window.innerWidth * 0.15;
-        const maxX = window.innerWidth * 0.60;
-        const minY = window.innerHeight * 0.15;
-        const maxY = window.innerHeight * 0.75;
-
+        const minX = window.innerWidth * 0.15, maxX = window.innerWidth * 0.60;
+        const minY = window.innerHeight * 0.15, maxY = window.innerHeight * 0.75;
         const targetX = minX + Math.random() * (maxX - minX);
         const targetY = minY + Math.random() * (maxY - minY);
 
-        const eventOpts = {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            clientX: targetX,
-            clientY: targetY,
-            pageX: targetX,
-            pageY: targetY
-        };
-
+        const eventOpts = { bubbles: true, cancelable: true, view: window, clientX: targetX, clientY: targetY, pageX: targetX, pageY: targetY };
         itemElement.dispatchEvent(new MouseEvent('mousedown', eventOpts));
         itemElement.dispatchEvent(new MouseEvent('mouseup', eventOpts));
         itemElement.dispatchEvent(new MouseEvent('click', eventOpts));
+    }
+
+    // İki Tablo Eşyasını Birleştir (Sürükle-Bırak Tetikleme)
+    function ikiEsyayiBirlestir(el1, el2) {
+        if (!el1 || !el2) return;
+        const rect1 = el1.getBoundingClientRect();
+        const rect2 = el2.getBoundingClientRect();
+        const x1 = rect1.left + rect1.width / 2, y1 = rect1.top + rect1.height / 2;
+        const x2 = rect2.left + rect2.width / 2, y2 = rect2.top + rect2.height / 2;
+
+        const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: x1, clientY: y1, buttons: 1 });
+        const move = new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: x2, clientY: y2, buttons: 1 });
+        const up = new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: x2, clientY: y2 });
+
+        el1.dispatchEvent(down);
+        document.dispatchEvent(move);
+        el2.dispatchEvent(up);
     }
 
     function adilRastgeleEsyaSec(items) {
@@ -282,10 +359,7 @@
 
     function adimAt() {
         const items = getSidebarItems();
-        if (items.length === 0) {
-            infoText.innerText = 'Eşya bulunamadı!';
-            return;
-        }
+        if (items.length === 0) { infoText.innerText = 'Eşya bulunamadı!'; return; }
 
         if (aktifMod === 'ustten_alta') {
             if (mevcutIndex >= items.length) mevcutIndex = 0;
@@ -293,46 +367,113 @@
             esyayiMasayaAt(item);
             infoText.innerText = `[Sıralı] ${item.innerText.trim()}`;
             mevcutIndex++;
-        } 
-        else if (aktifMod === 'alttan_uste') {
+        } else if (aktifMod === 'alttan_uste') {
             if (mevcutIndex < 0 || mevcutIndex >= items.length) mevcutIndex = items.length - 1;
             const item = items[mevcutIndex];
             esyayiMasayaAt(item);
             infoText.innerText = `[Ters] ${item.innerText.trim()}`;
             mevcutIndex--;
-        } 
-        else if (aktifMod === 'rastgele') {
+        } else if (aktifMod === 'rastgele') {
             const secilenItem = adilRastgeleEsyaSec(items);
             const tiklamaSayisi = Math.floor(Math.random() * maksTekrar) + 1;
-
             infoText.innerText = `[Rastgele] ${secilenItem.innerText.trim()} (${tiklamaSayisi}x)`;
-
             for (let k = 0; k < tiklamaSayisi; k++) {
-                setTimeout(() => {
-                    esyayiMasayaAt(secilenItem);
-                }, k * 30);
+                setTimeout(() => esyayiMasayaAt(secilenItem), k * 30);
             }
         }
     }
 
-    // BAŞLAT / DURDUR
+    // NORMAL BOT BAŞLAT / DURDUR
     mainToggleBtn.onclick = () => {
         calisiyor = !calisiyor;
-
         if (calisiyor) {
-            mainToggleBtn.innerText = 'DURDUR';
-            mainToggleBtn.style.backgroundColor = '#dc2626';
-            mainToggleBtn.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.4)';
-            
+            mainToggleBtn.innerText = 'DURDUR'; mainToggleBtn.style.backgroundColor = '#dc2626';
             timer = setInterval(adimAt, hizMS);
         } else {
-            mainToggleBtn.innerText = 'BAŞLAT';
-            mainToggleBtn.style.backgroundColor = '#16a34a';
-            mainToggleBtn.style.boxShadow = '0 4px 12px rgba(22, 163, 74, 0.4)';
-            infoText.innerText = 'Duraklatıldı.';
-            clearInterval(timer);
+            mainToggleBtn.innerText = 'BAŞLAT'; mainToggleBtn.style.backgroundColor = '#16a34a';
+            infoText.innerText = 'Duraklatıldı.'; clearInterval(timer);
         }
     };
 
-    console.log("%c[Tekdoz Bot] Sıfırlama butonlu yeni sürüm yüklendi!", "color: #38bdf8; font-weight: bold;");
+    // ÖZEL UYARI MODALI
+    function uyariliOnayEkraniGoster(onConfirm) {
+        const modalBg = document.createElement('div');
+        modalBg.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 1000000; display: flex; align-items: center; justify-content: center; font-family: Segoe UI, Arial, sans-serif;';
+
+        const modalBox = document.createElement('div');
+        modalBox.style.cssText = 'background: #18181b; border: 2px solid #ef4444; border-radius: 14px; padding: 20px; width: 280px; text-align: center; color: white; box-shadow: 0 10px 30px rgba(0,0,0,0.9);';
+
+        modalBox.innerHTML = `
+            <div style="font-size: 32px; margin-bottom: 8px;">⚠️</div>
+            <h3 style="margin: 0 0 10px 0; color: #ef4444; font-size: 15px; font-weight: bold;">BU ŞEY CİHAZINIZI ZORLAYABİLİR</h3>
+            <p style="font-size: 12px; color: #a1a1aa; margin-bottom: 18px; line-height: 1.4;">
+                Tablodaki bütün eşyalar birbirleriyle hızlıca kombinlenecektir. Devam etmek istiyor musunuz?
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button id="modal-yes" style="flex: 1; padding: 10px; background: #dc2626; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">EVET</button>
+                <button id="modal-no" style="flex: 1; padding: 10px; background: #27272a; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">HAYIR</button>
+            </div>
+        `;
+
+        modalBg.appendChild(modalBox);
+        document.body.appendChild(modalBg);
+
+        modalBox.querySelector('#modal-yes').onclick = () => { modalBg.remove(); onConfirm(); };
+        modalBox.querySelector('#modal-no').onclick = () => { modalBg.remove(); };
+    }
+
+    // TABLO KOMBİNASYONLARI DÖNGÜSÜ
+    combineBtn.onclick = () => {
+        if (birlestirmeCalisiyor) {
+            birlestirmeCalisiyor = false;
+            clearInterval(birlestirmeTimer);
+            combineBtn.innerText = '⚡ TABLODA OLAN BÜTÜN BİRLEŞTİRMELERİ DENE';
+            combineBtn.style.backgroundColor = '#7c3aed';
+            infoText.innerText = 'Birleştirme durduruldu.';
+            return;
+        }
+
+        uyariliOnayEkraniGoster(() => {
+            const boardItems = getBoardItems();
+            if (boardItems.length < 2) {
+                infoText.innerText = 'Tabloda en az 2 eşya olmalı!';
+                return;
+            }
+
+            // Tüm ikili kombinasyon çiftlerini oluştur (x-y, x-z, y-z...)
+            let ciftler = [];
+            for (let i = 0; i < boardItems.length; i++) {
+                for (let j = i + 1; j < boardItems.length; j++) {
+                    ciftler.push([boardItems[i], boardItems[j]]);
+                }
+            }
+
+            birlestirmeCalisiyor = true;
+            combineBtn.innerText = 'DURDUR';
+            combineBtn.style.backgroundColor = '#dc2626';
+
+            let ciftIndex = 0;
+            birlestirmeTimer = setInterval(() => {
+                if (ciftIndex >= ciftler.length || !birlestirmeCalisiyor) {
+                    birlestirmeCalisiyor = false;
+                    clearInterval(birlestirmeTimer);
+                    combineBtn.innerText = '⚡ TABLODA OLAN BÜTÜN BİRLEŞTİRMELERİ DENE';
+                    combineBtn.style.backgroundColor = '#7c3aed';
+                    infoText.innerText = ciftIndex >= ciftler.length ? 'Tüm kombinasyonlar bitti!' : 'Durduruldu.';
+                    return;
+                }
+
+                const [item1, item2] = ciftler[ciftIndex];
+                const name1 = item1.innerText.trim();
+                const name2 = item2.innerText.trim();
+
+                infoText.innerText = `[${ciftIndex + 1}/${ciftler.length}] ${name1} + ${name2}`;
+                ikiEsyayiBirlestir(item1, item2);
+
+                ciftIndex++;
+            }, birlestirmeHizMS);
+        });
+    };
+
+    console.log("%c[Tekdoz Bot] v5 Çoklu Özellikli Sürüm Hazır!", "color: #38bdf8; font-weight: bold;");
 })();
